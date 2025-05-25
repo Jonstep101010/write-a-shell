@@ -7,24 +7,22 @@ use std::{
 
 // @follow-up try using &str instead
 #[derive(PartialEq, Debug)]
-struct CommandArgs {
+struct Cmd {
 	binary: String,
 	args: Vec<String>,
 }
 
 // get single input from stdin
 // run single command
-impl CommandArgs {
-	fn from_str(line: String) -> Option<Self> {
+impl Cmd {
+	fn from_line(line: &str) -> Option<Self> {
 		dbg!(&line);
 		let mut parts = line.split_whitespace().map(String::from);
 		parts.next().map(|binary| {
-			let check = CommandArgs {
+			dbg!(Cmd {
 				binary,
 				args: parts.collect(),
-			};
-			dbg!(&check);
-			check
+			})
 		})
 	}
 	///
@@ -52,10 +50,42 @@ fn main() -> io::Result<()> {
 		let mut input_line = String::new();
 		std::io::stdin().read_line(&mut input_line)?;
 		// Parse line into executable command
-		if let Some(cmd) = CommandArgs::from_str(input_line) {
+		if let Some(cmd) = Cmd::from_line(&input_line) {
 			// Execute the command in a separate process
 			cmd.run()
 		}
 		// Show output
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn no_cmd_is_parsed_from_empty_line() {
+		assert_eq!(Cmd::from_line(""), None);
+	}
+
+	#[test]
+	fn cmd_with_no_args_is_parsed() {
+		assert_eq!(
+			Cmd::from_line("ls"),
+			Some(Cmd {
+				binary: "ls".to_string(),
+				args: vec![]
+			})
+		);
+	}
+
+	#[test]
+	fn cmd_with_args_is_parsed() {
+		assert_eq!(
+			Cmd::from_line("ls -l"),
+			Some(Cmd {
+				binary: "ls".to_string(),
+				args: vec!["-l".to_string()]
+			})
+		);
 	}
 }
