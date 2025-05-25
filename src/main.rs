@@ -18,9 +18,25 @@ impl CommandArgs {
 	fn from_str(line: String) -> Option<Self> {
 		dbg!(&line);
 		let mut parts = line.split_whitespace().map(String::from);
-		let binary = parts.next()?;
-		let args = parts.collect();
-		Some(CommandArgs { binary, args })
+		parts.next().map(|binary| {
+			let check = CommandArgs {
+				binary,
+				args: parts.collect(),
+			};
+			dbg!(&check);
+			check
+		})
+	}
+	///
+	/// runs command in separate process
+	pub fn run(self) {
+		let process = Command::new(self.binary).args(self.args).spawn();
+		match process {
+			Ok(mut child) => {
+				child.wait().expect("command wasn't running");
+			}
+			Err(e) => eprintln!("{e:?}"),
+		}
 	}
 }
 
@@ -36,8 +52,10 @@ fn main() -> io::Result<()> {
 		let mut input_line = String::new();
 		std::io::stdin().read_line(&mut input_line)?;
 		// Parse line into executable command
-		let mut cmd = CommandArgs::from_str(input_line);
-		// Execute the command in a separate process
+		if let Some(cmd) = CommandArgs::from_str(input_line) {
+			// Execute the command in a separate process
+			cmd.run()
+		}
 		// Show output
 	}
 }
