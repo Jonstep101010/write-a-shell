@@ -1,5 +1,5 @@
 [package]
-name = "write-a-shell"
+name = "write_a_shell"
 version = "0.1.0"
 edition = "2024"
 
