@@ -25,7 +25,7 @@ impl ElementVec for Vec<Element> {
 				}
 				Element::Or => {
 					let status = previous_output.expect("no command before ||").status;
-					if !status.success() {
+					if status.success() {
 						break;
 					}
 					previous_output = None;
