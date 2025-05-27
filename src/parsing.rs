@@ -7,6 +7,8 @@ pub struct Cmd {
 
 #[derive(PartialEq, Debug)]
 pub enum Element {
+	/// `|`
+	Pipe,
 	/// `&&`
 	And,
 	/// `||`
@@ -58,6 +60,7 @@ impl Parser {
 			.and_then(|next| {
 				self.current += 1;
 				match next.as_str() {
+					"|" => Some(Element::Pipe),
 					"&&" => Some(Element::And),
 					"||" => Some(Element::Or),
 					_ => Self::parse_cmd(&mut self, next.to_string()).map(Element::ElementCmd),

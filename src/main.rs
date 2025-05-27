@@ -24,6 +24,7 @@ fn main() -> io::Result<()> {
 		// Parse line into executable command
 		for cmd in parsing::parse_multiple(&input_line) {
 			// Execute the command in a separate process
+			// @follow-up take output and print stout
 			execution::ElementVec::run(cmd);
 		}
 		// Show output

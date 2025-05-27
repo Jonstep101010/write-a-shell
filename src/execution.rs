@@ -34,6 +34,7 @@ impl ElementVec for Vec<Element> {
 					}
 					previous_output = None;
 				}
+				Element::Pipe => { /* continue */ }
 			}
 		}
 	}
@@ -127,6 +128,7 @@ impl Cmd {
 	// replaced by Parser: from_line (single cmd)
 	/// runs command in separate process
 	pub fn run(self) -> Option<std::process::Output> {
+		// @todo provide previous_output
 		// set up args for builtins
 		let result = match self.binary.as_ref() {
 			"cd" => {
@@ -152,6 +154,7 @@ impl Cmd {
 		if let Err(e) = result {
 			eprintln!("{e:?}");
 		} else if let Ok(Some(output)) = result {
+			// @follow-up only print stderr (stdout goes to pipe)
 			std::io::stdout().write_all(&output.stdout).unwrap();
 			std::io::stderr().write_all(&output.stderr).unwrap();
 		}
@@ -159,6 +162,9 @@ impl Cmd {
 	}
 	pub fn run_external(self) -> Result<Option<Output>, std::io::Error> {
 		let process = Command::new(self.binary).args(self.args).spawn()?;
+		// @todo set up stdin to be pipe (provide previous_output)
+		// @todo set up pipe before spawn
+		// @todo write previous_output to child stdin
 		let output = process.wait_with_output()?;
 		Ok(Some(output))
 	}
