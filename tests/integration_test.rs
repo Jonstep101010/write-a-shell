@@ -111,3 +111,27 @@ fn integration_cmds_or_exprs() {
 		]
 	);
 }
+
+#[test]
+fn integration_cmds_piped_exprs() {
+	let parsed_pipes: Vec<Element> = Parser::new("cat | cat | ls").parse().unwrap();
+	assert_eq!(
+		parsed_pipes,
+		[
+			ElementCmd(Cmd {
+				binary: "cat".to_string(),
+				args: vec![]
+			}),
+			Pipe,
+			ElementCmd(Cmd {
+				binary: "cat".to_string(),
+				args: vec![]
+			}),
+			Pipe,
+			ElementCmd(Cmd {
+				binary: "ls".to_string(),
+				args: vec![]
+			})
+		]
+	);
+}

@@ -25,7 +25,10 @@ fn main() -> io::Result<()> {
 		for cmd in parsing::parse_multiple(&input_line) {
 			// Execute the command in a separate process
 			// @follow-up take output and print stout
-			execution::ElementVec::run(cmd);
+			let output = execution::ElementVec::run(cmd);
+			if let Some(output) = output {
+				std::io::stdout().write_all(&output.stdout).unwrap();
+			}
 		}
 		// Show output
 	}

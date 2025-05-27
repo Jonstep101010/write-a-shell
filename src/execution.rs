@@ -2,41 +2,42 @@ pub use crate::parsing::{Cmd, Element};
 use std::{
 	io::Write,
 	path::PathBuf,
-	process::{Command, Output},
+	process::{Command, Output, Stdio},
 };
 
 pub trait ElementVec {
 	// Add your methods here
-	fn run(self);
+	fn run(self) -> Option<Output>;
 }
 
 impl ElementVec for Vec<Element> {
 	// Implement your methods here
-	fn run(self) {
+	fn run(self) -> Option<Output> {
 		use Element::ElementCmd;
 		let mut previous_output = None;
 		for elem in self {
 			match elem {
 				ElementCmd(cmd) => {
-					previous_output = cmd.run();
+					previous_output = cmd.run(previous_output);
 				}
 				Element::And => {
-					let status = previous_output.expect("no command before &&").status;
+					let status = previous_output.as_ref()?.status;
 					if !status.success() {
 						break;
 					}
-					previous_output = None;
 				}
 				Element::Or => {
-					let status = previous_output.expect("no command before ||").status;
+					let status = previous_output.as_ref()?.status;
 					if status.success() {
 						break;
 					}
-					previous_output = None;
 				}
-				Element::Pipe => { /* continue */ }
+				Element::Pipe => {
+					continue;
+				}
 			}
 		}
+		previous_output
 	}
 }
 
@@ -127,8 +128,7 @@ pub mod builtins {
 impl Cmd {
 	// replaced by Parser: from_line (single cmd)
 	/// runs command in separate process
-	pub fn run(self) -> Option<std::process::Output> {
-		// @todo provide previous_output
+	pub fn run(self, previous_output: Option<Output>) -> Option<std::process::Output> {
 		// set up args for builtins
 		let result = match self.binary.as_ref() {
 			"cd" => {
@@ -149,23 +149,43 @@ impl Cmd {
 				builtins::Exit::new(status).run()
 			}
 			"history" => builtins::History::default().run(),
-			_ => self.run_external(),
+			_ => self.run_external(previous_output),
 		};
 		if let Err(e) = result {
 			eprintln!("{e:?}");
-		} else if let Ok(Some(output)) = result {
-			// @follow-up only print stderr (stdout goes to pipe)
-			std::io::stdout().write_all(&output.stdout).unwrap();
-			std::io::stderr().write_all(&output.stderr).unwrap();
-		}
+			return None;
+		} else if let Ok(opt_output) = result {
+			// @remind only print stderr (stdout goes to pipe)
+			if let Some(output) = &opt_output {
+				std::io::stderr().write_all(&output.stderr).unwrap();
+			}
+			return opt_output;
+		};
 		None
 	}
-	pub fn run_external(self) -> Result<Option<Output>, std::io::Error> {
-		let process = Command::new(self.binary).args(self.args).spawn()?;
-		// @todo set up stdin to be pipe (provide previous_output)
-		// @todo set up pipe before spawn
-		// @todo write previous_output to child stdin
-		let output = process.wait_with_output()?;
+	pub fn run_external(
+		self,
+		previous_output: Option<Output>,
+	) -> Result<Option<Output>, std::io::Error> {
+		let mut process = Command::new(self.binary);
+		process.args(self.args);
+		// @audit-ok set up stdin to be pipe (provide previous_output)
+		if previous_output.is_some() {
+			process.stdin(Stdio::piped());
+		}
+		// @audit-ok set up pipe before spawn
+		let mut child = process
+			.stdout(Stdio::piped())
+			.stderr(Stdio::piped())
+			.spawn()?;
+
+		if let Some(output) = previous_output {
+			if let Some(mut stdin) = child.stdin.take() {
+				stdin.write_all(&output.stdout)?;
+			}
+		}
+		// @remind write previous_output to child stdin
+		let output = child.wait_with_output()?;
 		Ok(Some(output))
 	}
 }

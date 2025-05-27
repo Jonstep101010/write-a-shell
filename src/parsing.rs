@@ -40,6 +40,7 @@ impl Parser {
 		loop {
 			let next = self.tokens.get(self.current);
 			match next {
+				Some(token) if token == "|" => break,
 				Some(token) if token == "&&" => break,
 				Some(token) if token == "||" => break,
 				Some(token) => {
@@ -129,5 +130,23 @@ mod tests {
 				})]
 			]
 		)
+	}
+
+	#[test]
+	fn pipe_is_parsed() {
+		assert_eq!(
+			parse_multiple("ls | wc -l"),
+			vec![vec![
+				ElementCmd(Cmd {
+					binary: "ls".to_string(),
+					args: vec![]
+				}),
+				Element::Pipe,
+				ElementCmd(Cmd {
+					binary: "wc".to_string(),
+					args: vec!["-l".to_string()]
+				}),
+			]]
+		);
 	}
 }
