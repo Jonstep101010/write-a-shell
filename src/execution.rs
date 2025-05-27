@@ -17,6 +17,7 @@ impl ElementVec for Vec<Element> {
 		let mut previous_output = None;
 		for elem in self {
 			match elem {
+				Element::Pipe => continue,
 				ElementCmd(cmd) => {
 					previous_output = cmd.run(previous_output);
 				}
@@ -31,9 +32,6 @@ impl ElementVec for Vec<Element> {
 					if status.success() {
 						break;
 					}
-				}
-				Element::Pipe => {
-					continue;
 				}
 			}
 		}
@@ -151,18 +149,21 @@ impl Cmd {
 			"history" => builtins::History::default().run(),
 			_ => self.run_external(previous_output),
 		};
-		if let Err(e) = result {
-			eprintln!("{e:?}");
-			return None;
-		} else if let Ok(opt_output) = result {
-			// @remind only print stderr (stdout goes to pipe)
-			if let Some(output) = &opt_output {
-				std::io::stderr().write_all(&output.stderr).unwrap();
+		match result {
+			Ok(opt_output) => {
+				if let Some(output) = &opt_output {
+					// @remind only print stderr (stdout goes to pipe)
+					std::io::stderr().write_all(&output.stderr).unwrap();
+				}
+				opt_output
 			}
-			return opt_output;
-		};
-		None
+			Err(e) => {
+				eprintln!("{e:?}");
+				None
+			}
+		}
 	}
+	// @note this implementation is incorrect as it waits for previous process to finish
 	pub fn run_external(
 		self,
 		previous_output: Option<Output>,
@@ -178,8 +179,7 @@ impl Cmd {
 			.stdout(Stdio::piped())
 			.stderr(Stdio::piped())
 			.spawn()?;
-
-		if let Some(output) = previous_output {
+		if let Some(output) = &previous_output {
 			if let Some(mut stdin) = child.stdin.take() {
 				stdin.write_all(&output.stdout)?;
 			}

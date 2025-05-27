@@ -30,10 +30,10 @@ impl Parser {
 	///
 	/// `chain_in_line`: single input to split by whitespace
 	pub fn new(chain_in_line: &str) -> Self {
-		dbg!(Self {
+		Self {
 			tokens: chain_in_line.split_whitespace().map(String::from).collect(),
 			current: 0,
-		})
+		}
 	}
 	fn parse_cmd(&mut self, binary: String) -> Option<Cmd> {
 		let mut args: Vec<String> = vec![];
@@ -50,7 +50,7 @@ impl Parser {
 			}
 			self.current += 1;
 		}
-		Some(dbg!(Cmd { binary, args }))
+		Some(Cmd { binary, args })
 	}
 	pub fn parse(mut self) -> Option<Vec<Element>> {
 		let mut elements = vec![];
@@ -70,11 +70,7 @@ impl Parser {
 			elements.push(elem);
 		}
 		// handle empty
-		if elements.is_empty() {
-			None
-		} else {
-			Some(elements)
-		}
+		(!elements.is_empty()).then_some(elements)
 	}
 }
 
