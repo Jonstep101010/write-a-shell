@@ -38,7 +38,7 @@ impl ElementVec for Vec<Element> {
 	}
 }
 
-mod builtins {
+pub mod builtins {
 	use std::{path::PathBuf, process::Output};
 
 	pub struct Cd {
@@ -71,6 +71,41 @@ mod builtins {
 			std::process::exit(self.status);
 		}
 	}
+
+	pub struct History {
+		history_file_path: PathBuf,
+	}
+
+	impl History {
+		///
+		/// assumes file exists with var
+		fn new(history_file_path: PathBuf) -> Self {
+			Self { history_file_path }
+		}
+
+		///
+		/// open create, append
+		pub fn run(self) -> Result<Option<Output>, std::io::Error> {
+			// read history to memory
+			// return output with history...
+			Ok(None)
+		}
+
+		pub fn add(&self, cmd: &str) -> Result<(), std::io::Error> {
+			use std::io::Write;
+			let mut histfile = std::fs::OpenOptions::new()
+				.append(true)
+				.create(true)
+				.open(&self.history_file_path)?;
+			writeln!(histfile, "{cmd}")
+		}
+	}
+	impl Default for History {
+		fn default() -> Self {
+			let fpath = std::env::var("HISTORY_PATH").unwrap_or(".history".to_string());
+			History::new(PathBuf::from(fpath))
+		}
+	}
 }
 
 // get single input from stdin
@@ -98,6 +133,7 @@ impl Cmd {
 				};
 				builtins::Exit::new(status).run()
 			}
+			"history" => builtins::History::default().run(),
 			_ => self.run_external(),
 		};
 		if let Err(e) = result {
