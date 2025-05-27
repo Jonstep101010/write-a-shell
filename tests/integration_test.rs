@@ -1,4 +1,3 @@
-use write_a_shell::execution::ElementVec;
 use write_a_shell::parsing::Element::*;
 pub use write_a_shell::parsing::{Cmd, Element, Parser};
 

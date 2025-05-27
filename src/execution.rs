@@ -1,5 +1,6 @@
 pub use crate::parsing::{Cmd, Element};
 use std::{
+	io::Write,
 	path::PathBuf,
 	process::{Command, Output},
 };
@@ -39,7 +40,11 @@ impl ElementVec for Vec<Element> {
 }
 
 pub mod builtins {
-	use std::{path::PathBuf, process::Output};
+	use std::{
+		os::unix::process::ExitStatusExt,
+		path::PathBuf,
+		process::{ExitStatus, Output},
+	};
 
 	pub struct Cd {
 		dir: PathBuf,
@@ -84,14 +89,22 @@ pub mod builtins {
 		}
 
 		///
-		/// open create, append
+		/// display history
 		pub fn run(self) -> Result<Option<Output>, std::io::Error> {
 			// read history to memory
+			let history = std::fs::read_to_string(self.history_file_path)?;
 			// return output with history...
-			Ok(None)
+			Ok(Some(Output {
+				status: ExitStatus::from_raw(0),
+				stdout: history.into_bytes(),
+				stderr: vec![],
+			}))
 		}
 
+		///
+		/// extend with `cmd`
 		pub fn add(&self, cmd: &str) -> Result<(), std::io::Error> {
+			// openflags: create, append
 			use std::io::Write;
 			let mut histfile = std::fs::OpenOptions::new()
 				.append(true)
@@ -138,7 +151,10 @@ impl Cmd {
 		};
 		if let Err(e) = result {
 			eprintln!("{e:?}");
-		};
+		} else if let Ok(Some(output)) = result {
+			std::io::stdout().write_all(&output.stdout).unwrap();
+			std::io::stderr().write_all(&output.stderr).unwrap();
+		}
 		None
 	}
 	pub fn run_external(self) -> Result<Option<Output>, std::io::Error> {
