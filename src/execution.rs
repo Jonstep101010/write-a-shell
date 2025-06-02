@@ -1,9 +1,5 @@
 pub use crate::parsing::{Cmd, Element};
-use std::{
-	io::Write,
-	path::PathBuf,
-	process::{Command, Output, Stdio},
-};
+use std::process::{Child, Command, Output, Stdio};
 
 pub trait ElementVec {
 	// Add your methods here
@@ -15,25 +11,88 @@ impl ElementVec for Vec<Element> {
 	fn run(self) -> Option<Output> {
 		use Element::ElementCmd;
 		let mut previous_output = None;
+		let mut commands: Vec<Cmd> = Vec::new();
+		for elem in self.iter() {
+			if let Element::ElementCmd(cmd) = elem {
+				commands.push(cmd.clone());
+			}
+		}
+		let mut prev_reader: Option<Stdio> = None;
+		let mut cmd_idx = 0;
+		let mut children: Vec<std::io::Result<Child>> = Vec::new();
 		for elem in self {
 			match elem {
 				Element::Pipe => continue,
-				ElementCmd(cmd) => {
-					previous_output = cmd.run(previous_output);
+				ElementCmd(_) => {
+					let stdin_info = if let Some(reader) = prev_reader.take() {
+						reader
+					} else {
+						// first
+						Stdio::inherit()
+					};
+					let stdout_info = if let Some((reader, writer)) =
+						(cmd_idx != commands.len() - 1).then_some(std::io::pipe().ok()?)
+					{
+						prev_reader = Some(reader.into());
+						writer.into()
+					} else {
+						// last
+						Stdio::inherit()
+					};
+					let command = commands.get(cmd_idx).unwrap();
+					if let Some(non_builtin_external) = command.run(stdin_info, stdout_info) {
+						children.push(non_builtin_external)
+					};
+					cmd_idx += 1;
 				}
 				Element::And => {
+					while let Some(child_result) = children.pop() {
+						previous_output = {
+							if let Ok(child) = child_result {
+								child.wait_with_output().ok()
+							} else {
+								let e =
+									child_result.expect_err("violated precondition: not an Err()");
+								eprintln!("{e:?}");
+								None
+							}
+						};
+					}
 					let status = previous_output.as_ref()?.status;
 					if !status.success() {
 						break;
 					}
 				}
 				Element::Or => {
+					while let Some(child_result) = children.pop() {
+						previous_output = {
+							if let Ok(child) = child_result {
+								child.wait_with_output().ok()
+							} else {
+								let e =
+									child_result.expect_err("violated precondition: not an Err()");
+								eprintln!("{e:?}");
+								None
+							}
+						};
+					}
 					let status = previous_output.as_ref()?.status;
 					if status.success() {
 						break;
 					}
 				}
 			}
+		}
+		for child_result in children {
+			previous_output = {
+				if let Ok(child) = child_result {
+					child.wait_with_output().ok()
+				} else {
+					let e = child_result.expect_err("violated precondition: not an Err()");
+					eprintln!("{e:?}");
+					None
+				}
+			};
 		}
 		previous_output
 	}
@@ -126,66 +185,79 @@ pub mod builtins {
 impl Cmd {
 	// replaced by Parser: from_line (single cmd)
 	/// runs command in separate process
-	pub fn run(self, previous_output: Option<Output>) -> Option<std::process::Output> {
+	/// Option: Some() denotes external
+	pub fn run(&self, stdin_info: Stdio, stdout_info: Stdio) -> Option<std::io::Result<Child>> {
 		// set up args for builtins
-		let result = match self.binary.as_ref() {
-			"cd" => {
-				let dir = self.args.first()?;
-				let dir_pbuf = PathBuf::from(dir);
-				builtins::Cd::new(dir_pbuf).run()
-			}
-			"pwd" => {
-				let path = std::env::current_dir().expect("cwd should exist!");
-				println!("{}", path.display());
-				Ok(None)
-			}
-			"exit" => {
-				let status = match self.args.first() {
-					Some(status) => status.parse().unwrap_or_default(),
-					None => 0,
-				};
-				builtins::Exit::new(status).run()
-			}
-			"history" => builtins::History::default().run(),
-			_ => self.run_external(previous_output),
-		};
-		match result {
-			Ok(opt_output) => {
-				if let Some(output) = &opt_output {
-					// @remind only print stderr (stdout goes to pipe)
-					std::io::stderr().write_all(&output.stderr).unwrap();
-				}
-				opt_output
-			}
-			Err(e) => {
-				eprintln!("{e:?}");
-				None
-			}
-		}
+		// let result = match self.binary.as_ref() {
+		// match &self.binary {
+		// "cd" => {
+		// 	let dir = self.args.first()?;
+		// 	let dir_pbuf = PathBuf::from(dir);
+		// 	builtins::Cd::new(dir_pbuf).run()
+		// }
+		// "pwd" => {
+		// 	let path = std::env::current_dir().expect("cwd should exist!");
+		// 	println!("{}", path.display());
+		// 	Ok(None)
+		// }
+		// "exit" => {
+		// 	let status = match self.args.first() {
+		// 		Some(status) => status.parse().unwrap_or_default(),
+		// 		None => 0,
+		// 	};
+		// 	builtins::Exit::new(status).run()
+		// }
+		// "history" => builtins::History::default().run(),
+		// external_binary => Some(
+		// Command::new(external_binary)
+		// 	.args(self.args)
+		// 	.stdin(stdin_info)
+		// 	.stdout(stdout_info)
+		// 	.spawn(),
+		// ),
+		// }
+		Some(
+			Command::new(&self.binary)
+				.args(&self.args)
+				.stdin(stdin_info)
+				.stdout(stdout_info)
+				.spawn(),
+		)
+		// };
+		// match result {
+		// 	Ok(opt_output) => {
+		// 		if let Some(output) = &opt_output {
+		// 			// @remind only print stderr (stdout goes to pipe)
+		// 			std::io::stderr().write_all(&output.stderr).unwrap();
+		// 		}
+		// 		opt_output
+		// 	}
+		// 	Err(e) => {
+		// 		eprintln!("{e:?}");
+		// 		None
+		// 	}
+		// }
 	}
 	// @note this implementation is incorrect as it waits for previous process to finish
-	pub fn run_external(
-		self,
-		previous_output: Option<Output>,
-	) -> Result<Option<Output>, std::io::Error> {
-		let mut process = Command::new(self.binary);
-		process.args(self.args);
-		// @audit-ok set up stdin to be pipe (provide previous_output)
-		if previous_output.is_some() {
-			process.stdin(Stdio::piped());
-		}
-		// @audit-ok set up pipe before spawn
-		let mut child = process
-			.stdout(Stdio::piped())
-			.stderr(Stdio::piped())
-			.spawn()?;
-		if let Some(output) = &previous_output {
-			if let Some(mut stdin) = child.stdin.take() {
-				stdin.write_all(&output.stdout)?;
-			}
-		}
-		// @remind write previous_output to child stdin
-		let output = child.wait_with_output()?;
-		Ok(Some(output))
-	}
+	// pub fn run_external(self, stdin_info: Stdio, stdout_info: Stdio) -> std::io::Result<Child> {
+	// let mut process = Command::new(self.binary);
+	// process.args(self.args);
+	// // @audit-ok set up stdin to be pipe (provide previous_output)
+	// if previous_output.is_some() {
+	// 	process.stdin(Stdio::piped());
+	// }
+	// // @audit-ok set up pipe before spawn
+	// let mut child = process
+	// 	.stdout(Stdio::piped())
+	// 	.stderr(Stdio::piped())
+	// 	.spawn()?;
+	// if let Some(output) = &previous_output {
+	// 	if let Some(mut stdin) = child.stdin.take() {
+	// 		stdin.write_all(&output.stdout)?;
+	// 	}
+	// }
+	// // @remind write previous_output to child stdin
+	// let output = child.wait_with_output()?;
+	// Ok(Some(output))
+	// }
 }
