@@ -1,5 +1,5 @@
 // @follow-up try using &str instead
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Cmd {
 	pub binary: String,
 	pub args: Vec<String>,
