@@ -15,16 +15,20 @@ impl ElementVec for Vec<Element> {
 	fn run(self) -> Option<Output> {
 		use Element::ElementCmd;
 		let mut previous_output = None;
-		let mut piped_commands: Vec<Cmd> = Vec::new();
-		for (idx, elem) in self.iter().enumerate() {
-			if let Element::ElementCmd(cmd) = elem {
-				if self.get(idx + 1) == Some(&Element::Pipe)
-					|| (idx > 0 && self.get(idx - 1) == Some(&Element::Pipe))
-				{
-					piped_commands.push(cmd.clone());
+		let piped_commands: Vec<Cmd> = self
+			.iter()
+			.enumerate()
+			.flat_map(|(idx, elem)| {
+				if let Element::ElementCmd(cmd) = elem {
+					if self.get(idx + 1) == Some(&Element::Pipe)
+						|| (idx > 0 && self.get(idx - 1) == Some(&Element::Pipe))
+					{
+						return Some(cmd.clone());
+					}
 				}
-			}
-		}
+				None
+			})
+			.collect();
 		let mut prev_reader: Option<Stdio> = None;
 		let mut cmd_idx = 0;
 		let mut children: Vec<std::io::Result<Child>> = Vec::new();
@@ -66,40 +70,28 @@ impl ElementVec for Vec<Element> {
 						std::io::stdout().write_all(&output_builtin.stdout).unwrap();
 					}
 				}
-				Element::And => {
-					if let Some(child_result) = children.pop() {
-						previous_output = {
-							if let Ok(child) = child_result {
-								child.wait_with_output().ok()
-							} else {
-								let e =
-									child_result.expect_err("violated precondition: not an Err()");
-								eprintln!("{e:?}");
-								None
-							}
-						};
-					}
+				Element::And | Element::Or => {
+					previous_output = match children.pop() {
+						Some(Err(e)) => {
+							eprintln!("{e:?}");
+							None
+						}
+						Some(Ok(child)) => child.wait_with_output().ok(),
+						None => previous_output,
+					};
 					let status = previous_output.as_ref()?.status;
-					if !status.success() {
-						break;
-					}
-				}
-				Element::Or => {
-					if let Some(child_result) = children.pop() {
-						previous_output = {
-							if let Ok(child) = child_result {
-								child.wait_with_output().ok()
-							} else {
-								let e =
-									child_result.expect_err("violated precondition: not an Err()");
-								eprintln!("{e:?}");
-								None
+					match elem {
+						Element::And => {
+							if !status.success() {
+								break;
 							}
-						};
-					}
-					let status = previous_output.as_ref()?.status;
-					if status.success() {
-						break;
+						}
+						Element::Or => {
+							if status.success() {
+								break;
+							}
+						}
+						_ => unreachable!("match excludes!"),
 					}
 				}
 			}
