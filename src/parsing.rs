@@ -1,12 +1,11 @@
-// @follow-up try using &str instead
 #[derive(PartialEq, Debug, Clone)]
-pub struct Cmd {
-	pub binary: String,
-	pub args: Vec<String>,
+pub struct Cmd<'a> {
+	pub binary: &'a str,
+	pub args: Vec<&'a str>,
 }
 
-#[derive(PartialEq, Debug)]
-pub enum Element {
+#[derive(PartialEq, Debug, Clone)]
+pub enum Element<'a> {
 	/// `|`
 	Pipe,
 	/// `&&`
@@ -15,36 +14,34 @@ pub enum Element {
 	Or,
 	/// Command.
 	#[allow(clippy::enum_variant_names)]
-	ElementCmd(Cmd),
+	ElementCmd(Cmd<'a>),
 }
 
 /// processes input: `chain_in_line` (already split by ';')
 /// Parse `[Element]`s from a string.
 #[derive(Debug)]
-pub struct Parser {
+pub struct Parser<'a> {
 	current: usize,
-	tokens: Vec<String>,
+	tokens: Vec<&'a str>,
 }
 
-impl Parser {
+impl<'a> Parser<'a> {
 	///
 	/// `chain_in_line`: single input to split by whitespace
-	pub fn new(chain_in_line: &str) -> Self {
+	pub fn new(chain_in_line: &'a str) -> Self {
 		Self {
-			tokens: chain_in_line.split_whitespace().map(String::from).collect(),
+			tokens: chain_in_line.split_whitespace().collect(),
 			current: 0,
 		}
 	}
-	fn parse_cmd(&mut self, binary: String) -> Option<Cmd> {
-		let mut args: Vec<String> = vec![];
+	fn parse_cmd(&mut self, binary: &'a str) -> Option<Cmd<'a>> {
+		let mut args: Vec<&'a str> = vec![];
 		loop {
 			let next = self.tokens.get(self.current);
 			match next {
-				Some(token) if token == "|" => break,
-				Some(token) if token == "&&" => break,
-				Some(token) if token == "||" => break,
-				Some(token) => {
-					args.push(token.to_string());
+				Some(&"|") | Some(&"&&") | Some(&"||") => break,
+				Some(&token) => {
+					args.push(token);
 				}
 				None => break,
 			}
@@ -52,32 +49,29 @@ impl Parser {
 		}
 		Some(Cmd { binary, args })
 	}
-	pub fn parse(mut self) -> Option<Vec<Element>> {
+	pub fn parse(mut self) -> Option<Vec<Element<'a>>> {
 		let mut elements = vec![];
-		while let Some(elem) = self
-			.tokens
-			.get(self.current)
-			.map(|s| s.to_string())
-			.and_then(|next| {
-				self.current += 1;
-				match next.as_str() {
-					"|" => Some(Element::Pipe),
-					"&&" => Some(Element::And),
-					"||" => Some(Element::Or),
-					_ => Self::parse_cmd(&mut self, next.to_string()).map(Element::ElementCmd),
-				}
-			}) {
-			elements.push(elem);
+		while let Some(&token) = self.tokens.get(self.current) {
+			self.current += 1;
+			elements.push(match token {
+				"|" => Element::Pipe,
+				"&&" => Element::And,
+				"||" => Element::Or,
+				_ => match Self::parse_cmd(&mut self, token) {
+					Some(cmd) => Element::ElementCmd(cmd),
+					None => break,
+				},
+			});
 		}
 		// handle empty
 		(!elements.is_empty()).then_some(elements)
 	}
 }
 
-pub fn parse_multiple(line: &str) -> Vec<Vec<Element>> {
+pub fn parse_multiple(line: &str) -> Vec<Vec<Element<'_>>> {
 	// inefficient: parses whole line with split (instead of char by char)
 	line.split(';')
-		.filter_map(|s| Parser::new(s).parse())
+		.filter_map(|s| Parser::new(s.trim()).parse())
 		.collect()
 }
 
@@ -95,7 +89,7 @@ mod tests {
 		assert_eq!(
 			parse_multiple("ls"),
 			vec![vec![ElementCmd(Cmd {
-				binary: "ls".to_string(),
+				binary: "ls",
 				args: vec![]
 			}),],]
 		);
@@ -106,8 +100,8 @@ mod tests {
 		assert_eq!(
 			parse_multiple("ls -l"),
 			vec![vec![ElementCmd(Cmd {
-				binary: "ls".to_string(),
-				args: vec!["-l".to_string()]
+				binary: "ls",
+				args: vec!["-l"]
 			})]]
 		);
 	}
@@ -117,12 +111,12 @@ mod tests {
 			parse_multiple("ls; echo hello"),
 			[
 				[ElementCmd(Cmd {
-					binary: "ls".to_string(),
+					binary: "ls",
 					args: vec![]
 				})],
 				[ElementCmd(Cmd {
-					binary: "echo".to_string(),
-					args: vec!["hello".to_string()]
+					binary: "echo",
+					args: vec!["hello"]
 				})]
 			]
 		)
@@ -134,13 +128,13 @@ mod tests {
 			parse_multiple("ls | wc -l"),
 			vec![vec![
 				ElementCmd(Cmd {
-					binary: "ls".to_string(),
+					binary: "ls",
 					args: vec![]
 				}),
 				Element::Pipe,
 				ElementCmd(Cmd {
-					binary: "wc".to_string(),
-					args: vec!["-l".to_string()]
+					binary: "wc",
+					args: vec!["-l"]
 				}),
 			]]
 		);

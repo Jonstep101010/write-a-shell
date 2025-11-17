@@ -10,8 +10,7 @@ pub trait ElementVec {
 	fn run(self) -> Option<Output>;
 }
 
-impl ElementVec for Vec<Element> {
-	// Implement your methods here
+impl<'a> ElementVec for Vec<Element<'a>> {
 	fn run(self) -> Option<Output> {
 		use Element::ElementCmd;
 		let mut previous_output = None;
@@ -19,12 +18,11 @@ impl ElementVec for Vec<Element> {
 			.iter()
 			.enumerate()
 			.flat_map(|(idx, elem)| {
-				if let Element::ElementCmd(cmd) = elem {
-					if self.get(idx + 1) == Some(&Element::Pipe)
-						|| (idx > 0 && self.get(idx - 1) == Some(&Element::Pipe))
-					{
-						return Some(cmd.clone());
-					}
+				if let Element::ElementCmd(cmd) = elem
+					&& (self.get(idx + 1) == Some(&Element::Pipe)
+						|| (idx > 0 && self.get(idx - 1) == Some(&Element::Pipe)))
+				{
+					return Some(cmd.clone());
 				}
 				None
 			})
@@ -198,7 +196,7 @@ pub type BuiltinWithOutput = Option<Result<Option<Output>, std::io::Error>>;
 
 // get single input from stdin
 // run single command
-impl Cmd {
+impl<'a> Cmd<'a> {
 	// replaced by Parser: from_line (single cmd)
 	/// runs command in separate process
 	/// Option: Some() denotes external
@@ -208,7 +206,7 @@ impl Cmd {
 		stdout_info: Stdio,
 	) -> (ExternalWithChild, BuiltinWithOutput) {
 		// set up args for builtins
-		match self.binary.as_ref() {
+		match self.binary {
 			"cd" => {
 				let dir = self.args.first();
 				if dir.is_none() {
@@ -236,7 +234,7 @@ impl Cmd {
 			"history" => (None, Some(builtins::History::default().run())),
 			_ => (
 				Some(
-					Command::new(&self.binary)
+					Command::new(self.binary)
 						.args(&self.args)
 						.stdin(stdin_info)
 						.stdout(stdout_info)

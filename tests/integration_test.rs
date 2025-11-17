@@ -11,13 +11,13 @@ fn integration_cmds_are_parsed_and() {
 		parsed,
 		[[
 			ElementCmd(Cmd {
-				binary: "echo".to_string(),
-				args: vec!["‘hello’".to_string()]
+				binary: "echo",
+				args: vec!["‘hello’"]
 			}),
 			Element::And,
 			ElementCmd(Cmd {
-				binary: "echo".to_string(),
-				args: vec!["‘world’".to_string()]
+				binary: "echo",
+				args: vec!["‘world’"]
 			})
 		]]
 	);
@@ -33,12 +33,12 @@ fn integration_cmds_are_parsed_semicolon() {
 		parsed,
 		[
 			[ElementCmd(Cmd {
-				binary: "echo".to_string(),
-				args: vec!["1".to_string()]
+				binary: "echo",
+				args: vec!["1"]
 			})],
 			[ElementCmd(Cmd {
-				binary: "echo".to_string(),
-				args: vec!["2".to_string()]
+				binary: "echo",
+				args: vec!["2"]
 			})]
 		]
 	);
@@ -51,13 +51,13 @@ fn integration_cmds_and_exprs() {
 		parsed_true,
 		[
 			ElementCmd(Cmd {
-				binary: "true".to_string(),
+				binary: "true",
 				args: vec![]
 			}),
 			And,
 			ElementCmd(Cmd {
-				binary: "echo".to_string(),
-				args: vec!["\"output\"".to_string()]
+				binary: "echo",
+				args: vec!["\"output\""]
 			})
 		]
 	);
@@ -66,13 +66,13 @@ fn integration_cmds_and_exprs() {
 		parsed_false,
 		[
 			ElementCmd(Cmd {
-				binary: "false".to_string(),
+				binary: "false",
 				args: vec![]
 			}),
 			And,
 			ElementCmd(Cmd {
-				binary: "echo".to_string(),
-				args: vec!["\"output\"".to_string()]
+				binary: "echo",
+				args: vec!["\"output\""]
 			})
 		]
 	);
@@ -85,13 +85,13 @@ fn integration_cmds_or_exprs() {
 		parsed_true,
 		[
 			ElementCmd(Cmd {
-				binary: "true".to_string(),
+				binary: "true",
 				args: vec![]
 			}),
 			Or,
 			ElementCmd(Cmd {
-				binary: "echo".to_string(),
-				args: vec!["\"output\"".to_string()]
+				binary: "echo",
+				args: vec!["\"output\""]
 			})
 		]
 	);
@@ -100,13 +100,13 @@ fn integration_cmds_or_exprs() {
 		parsed_false,
 		[
 			ElementCmd(Cmd {
-				binary: "false".to_string(),
+				binary: "false",
 				args: vec![]
 			}),
 			Or,
 			ElementCmd(Cmd {
-				binary: "echo".to_string(),
-				args: vec!["\"output\"".to_string()]
+				binary: "echo",
+				args: vec!["\"output\""]
 			})
 		]
 	);
@@ -119,17 +119,17 @@ fn integration_cmds_piped_exprs() {
 		parsed_pipes,
 		[
 			ElementCmd(Cmd {
-				binary: "cat".to_string(),
+				binary: "cat",
 				args: vec![]
 			}),
 			Pipe,
 			ElementCmd(Cmd {
-				binary: "cat".to_string(),
+				binary: "cat",
 				args: vec![]
 			}),
 			Pipe,
 			ElementCmd(Cmd {
-				binary: "ls".to_string(),
+				binary: "ls",
 				args: vec![]
 			})
 		]
