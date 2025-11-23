@@ -12,6 +12,14 @@ pub enum Element<'a> {
 	And,
 	/// `||`
 	Or,
+	/// `>` - redirect stdout to file (overwrite)
+	RedirectOut(&'a str),
+	/// `>>` - redirect stdout to file (append)
+	RedirectAppend(&'a str),
+	/// `<` - redirect stdin from file
+	RedirectIn(&'a str),
+	/// `<<` - heredoc: read until delimiter
+	Heredoc(&'a str, String),
 	/// Command.
 	#[allow(clippy::enum_variant_names)]
 	ElementCmd(Cmd<'a>),
@@ -39,7 +47,8 @@ impl<'a> Parser<'a> {
 		loop {
 			let next = self.tokens.get(self.current);
 			match next {
-				Some(&"|") | Some(&"&&") | Some(&"||") => break,
+				Some(&"|") | Some(&"&&") | Some(&"||")
+				| Some(&">") | Some(&">>") | Some(&"<") | Some(&"<<") => break,
 				Some(&token) => {
 					args.push(token);
 				}
@@ -57,6 +66,29 @@ impl<'a> Parser<'a> {
 				"|" => Element::Pipe,
 				"&&" => Element::And,
 				"||" => Element::Or,
+				">" => {
+					// next token should be filename
+					let filename = self.tokens.get(self.current)?;
+					self.current += 1;
+					Element::RedirectOut(filename)
+				}
+				">>" => {
+					let filename = self.tokens.get(self.current)?;
+					self.current += 1;
+					Element::RedirectAppend(filename)
+				}
+				"<" => {
+					let filename = self.tokens.get(self.current)?;
+					self.current += 1;
+					Element::RedirectIn(filename)
+				}
+				"<<" => {
+					let delimiter = self.tokens.get(self.current)?;
+					self.current += 1;
+					// For heredoc, we need to read lines until we see the delimiter
+					// For now, we'll store empty content and handle it in main.rs
+					Element::Heredoc(delimiter, String::new())
+				}
 				_ => match Self::parse_cmd(&mut self, token) {
 					Some(cmd) => Element::ElementCmd(cmd),
 					None => break,

@@ -21,8 +21,30 @@ fn main() -> io::Result<()> {
 		history
 			.add(input_line.trim())
 			.expect("cannot open histfile");
+
 		// Parse line into executable command
-		for cmd in parsing::parse_multiple(&input_line) {
+		let mut cmd_chains = parsing::parse_multiple(&input_line);
+
+		// Handle heredocs: collect content until delimiter is seen
+		for chain in &mut cmd_chains {
+			for elem in chain.iter_mut() {
+				if let parsing::Element::Heredoc(delimiter, content) = elem {
+					// Read lines until we see the delimiter
+					let mut heredoc_content = String::new();
+					loop {
+						let mut line = String::new();
+						std::io::stdin().read_line(&mut line)?;
+						if line.trim() == *delimiter {
+							break;
+						}
+						heredoc_content.push_str(&line);
+					}
+					*content = heredoc_content;
+				}
+			}
+		}
+
+		for cmd in cmd_chains {
 			// Execute the command in a separate process
 			// @follow-up take output and print stout
 			let output = execution::ElementVec::run(cmd);

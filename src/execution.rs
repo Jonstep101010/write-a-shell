@@ -1,5 +1,6 @@
 pub use crate::parsing::{Cmd, Element};
 use std::{
+	fs::{File, OpenOptions},
 	io::Write,
 	path::PathBuf,
 	process::{Child, Command, Output, Stdio},
@@ -32,38 +33,148 @@ impl<'a> ElementVec for Vec<Element<'a>> {
 		let mut children: Vec<std::io::Result<Child>> = Vec::new();
 		for (idx, elem) in self.iter().enumerate() {
 			match elem {
-				Element::Pipe => continue,
+				Element::Pipe | Element::RedirectOut(_) | Element::RedirectAppend(_)
+				| Element::RedirectIn(_) | Element::Heredoc(_, _) => continue,
 				ElementCmd(cmd) => {
-					let (external, builtin) = if self.get(idx + 1) == Some(&Element::Pipe)
-						|| (idx > 0 && self.get(idx - 1) == Some(&Element::Pipe))
-					{
-						let stdin_info = if let Some(reader) = prev_reader.take() {
+					// Determine stdin
+					let mut stdin_info = Stdio::inherit();
+					let mut heredoc_content: Option<String> = None;
+					let mut stdin_redirected = false;
+
+					// Check for input redirection before or after this command
+					// First check before (for syntax like: < file cat)
+					if idx > 0 {
+						match self.get(idx - 1) {
+							Some(Element::RedirectIn(filename)) => {
+								match File::open(filename) {
+									Ok(file) => {
+										stdin_info = Stdio::from(file);
+										stdin_redirected = true;
+									}
+									Err(e) => {
+										eprintln!("Error opening {}: {}", filename, e);
+										continue;
+									}
+								}
+							}
+							Some(Element::Heredoc(_, content)) => {
+								// For heredoc, we need to write content to stdin
+								stdin_info = Stdio::piped();
+								heredoc_content = Some(content.clone());
+								stdin_redirected = true;
+							}
+							_ => {}
+						}
+					}
+
+					// Then check after (for syntax like: cat < file)
+					if !stdin_redirected {
+						if let Some(next_elem) = self.get(idx + 1) {
+							match next_elem {
+								Element::RedirectIn(filename) => {
+									match File::open(filename) {
+										Ok(file) => {
+											stdin_info = Stdio::from(file);
+											stdin_redirected = true;
+										}
+										Err(e) => {
+											eprintln!("Error opening {}: {}", filename, e);
+											continue;
+										}
+									}
+								}
+								Element::Heredoc(_, content) => {
+									// For heredoc, we need to write content to stdin
+									stdin_info = Stdio::piped();
+									heredoc_content = Some(content.clone());
+									stdin_redirected = true;
+								}
+								_ => {}
+							}
+						}
+					}
+
+					// Check if this command is part of a pipe
+					let is_piped = self.get(idx + 1) == Some(&Element::Pipe)
+						|| (idx > 0 && self.get(idx - 1) == Some(&Element::Pipe));
+
+					// If stdin wasn't set by redirection and we're in a pipe, use pipe stdin
+					if !stdin_redirected && is_piped {
+						stdin_info = if let Some(reader) = prev_reader.take() {
 							reader
 						} else {
-							// first
 							Stdio::inherit()
 						};
-						let stdout_info = if let Some((reader, writer)) =
-							(cmd_idx != piped_commands.len() - 1).then_some(std::io::pipe().ok()?)
-						{
-							prev_reader = Some(reader.into());
-							writer.into()
-						} else {
-							// last
-							Stdio::inherit()
-						};
-						let state = piped_commands
-							.get(cmd_idx)
-							.expect("pipe: precondition to hold")
-							.run(stdin_info, stdout_info);
+					}
+
+					// Determine stdout
+					let mut stdout_info = Stdio::inherit();
+					let mut stdout_redirected = false;
+
+					// Check for output redirection after this command
+					if let Some(next_elem) = self.get(idx + 1) {
+						match next_elem {
+							Element::RedirectOut(filename) => {
+								match File::create(filename) {
+									Ok(file) => {
+										stdout_info = Stdio::from(file);
+										stdout_redirected = true;
+									}
+									Err(e) => {
+										eprintln!("Error creating {}: {}", filename, e);
+										continue;
+									}
+								}
+							}
+							Element::RedirectAppend(filename) => {
+								match OpenOptions::new().append(true).create(true).open(filename) {
+									Ok(file) => {
+										stdout_info = Stdio::from(file);
+										stdout_redirected = true;
+									}
+									Err(e) => {
+										eprintln!("Error opening {} for append: {}", filename, e);
+										continue;
+									}
+								}
+							}
+							Element::Pipe => {
+								// Only set up pipe if stdout wasn't redirected
+								if !stdout_redirected {
+									if cmd_idx < piped_commands.len() - 1 {
+										if let Ok((reader, writer)) = std::io::pipe() {
+											prev_reader = Some(reader.into());
+											stdout_info = writer.into();
+										}
+									}
+								}
+							}
+							_ => {}
+						}
+					}
+
+					let (external, builtin) = cmd.run(stdin_info, stdout_info);
+
+					if is_piped && idx > 0 && matches!(self.get(idx - 1), Some(Element::Pipe)) {
 						cmd_idx += 1;
-						state
-					} else {
-						// not in pipes
-						cmd.run(Stdio::inherit(), Stdio::inherit())
-					};
+					}
+
 					if let Some(non_builtin_external) = external {
-						children.push(non_builtin_external)
+						// If we have heredoc content, write it to stdin
+						if let Some(content) = heredoc_content {
+							if let Ok(mut child) = non_builtin_external {
+								if let Some(mut stdin) = child.stdin.take() {
+									use std::io::Write;
+									let _ = stdin.write_all(content.as_bytes());
+									drop(stdin); // Close stdin to signal EOF
+								}
+								children.push(Ok(child));
+							} else {
+								children.push(non_builtin_external);
+							}
+						} else {
+							children.push(non_builtin_external);
+						}
 					} else if let Some(Ok(Some(output_builtin))) = builtin {
 						std::io::stdout().write_all(&output_builtin.stdout).unwrap();
 					}
