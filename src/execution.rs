@@ -1,5 +1,6 @@
 pub use crate::parsing::{Cmd, Element};
 use std::{
+	fs::File,
 	io::Write,
 	path::PathBuf,
 	process::{Child, Command, Output, Stdio},
@@ -203,8 +204,14 @@ impl<'a> Cmd<'a> {
 	pub fn run(
 		&self,
 		stdin_info: Stdio,
-		stdout_info: Stdio,
+		mut stdout_info: Stdio,
 	) -> (ExternalWithChild, BuiltinWithOutput) {
+		// Handle file redirection if redirect_target is set
+		if let Some(target) = self.redirect_target {
+			if let Ok(file) = File::create(target) {
+				stdout_info = Stdio::from(file);
+			}
+		}
 		// set up args for builtins
 		match self.binary {
 			"cd" => {

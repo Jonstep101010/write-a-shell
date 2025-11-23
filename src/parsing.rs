@@ -2,6 +2,7 @@
 pub struct Cmd<'a> {
 	pub binary: &'a str,
 	pub args: Vec<&'a str>,
+	pub redirect_target: Option<&'a str>,
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -36,10 +37,21 @@ impl<'a> Parser<'a> {
 	}
 	fn parse_cmd(&mut self, binary: &'a str) -> Option<Cmd<'a>> {
 		let mut args: Vec<&'a str> = vec![];
+		let mut redirect_target: Option<&'a str> = None;
 		loop {
 			let next = self.tokens.get(self.current);
 			match next {
 				Some(&"|") | Some(&"&&") | Some(&"||") => break,
+				Some(&">") => {
+					// consume the > token
+					self.current += 1;
+					// get the filename
+					if let Some(&filename) = self.tokens.get(self.current) {
+						redirect_target = Some(filename);
+						self.current += 1;
+					}
+					break;
+				}
 				Some(&token) => {
 					args.push(token);
 				}
@@ -47,7 +59,11 @@ impl<'a> Parser<'a> {
 			}
 			self.current += 1;
 		}
-		Some(Cmd { binary, args })
+		Some(Cmd {
+			binary,
+			args,
+			redirect_target,
+		})
 	}
 	pub fn parse(mut self) -> Option<Vec<Element<'a>>> {
 		let mut elements = vec![];
@@ -90,7 +106,8 @@ mod tests {
 			parse_multiple("ls"),
 			vec![vec![ElementCmd(Cmd {
 				binary: "ls",
-				args: vec![]
+				args: vec![],
+				redirect_target: None,
 			}),],]
 		);
 	}
@@ -101,7 +118,8 @@ mod tests {
 			parse_multiple("ls -l"),
 			vec![vec![ElementCmd(Cmd {
 				binary: "ls",
-				args: vec!["-l"]
+				args: vec!["-l"],
+				redirect_target: None,
 			})]]
 		);
 	}
@@ -112,11 +130,13 @@ mod tests {
 			[
 				[ElementCmd(Cmd {
 					binary: "ls",
-					args: vec![]
+					args: vec![],
+					redirect_target: None,
 				})],
 				[ElementCmd(Cmd {
 					binary: "echo",
-					args: vec!["hello"]
+					args: vec!["hello"],
+					redirect_target: None,
 				})]
 			]
 		)
@@ -129,12 +149,14 @@ mod tests {
 			vec![vec![
 				ElementCmd(Cmd {
 					binary: "ls",
-					args: vec![]
+					args: vec![],
+					redirect_target: None,
 				}),
 				Element::Pipe,
 				ElementCmd(Cmd {
 					binary: "wc",
-					args: vec!["-l"]
+					args: vec!["-l"],
+					redirect_target: None,
 				}),
 			]]
 		);

@@ -3,24 +3,24 @@ pub use write_a_shell::parsing::{Cmd, Element, Parser};
 
 #[test]
 fn integration_cmds_are_parsed_and() {
-	let parsed: Vec<Vec<Element>> = "echo ‘hello’ && echo ‘world’"
+	let parsed: Vec<Vec<Element>> = "echo 'hello' && echo 'world'"
 		.split(';')
 		.filter_map(|s| Parser::new(s).parse())
 		.collect();
-	assert_eq!(
-		parsed,
-		[[
-			ElementCmd(Cmd {
-				binary: "echo",
-				args: vec!["‘hello’"]
-			}),
-			Element::And,
-			ElementCmd(Cmd {
-				binary: "echo",
-				args: vec!["‘world’"]
-			})
-		]]
-	);
+	let expected: Vec<Vec<Element>> = vec![vec![
+		ElementCmd(Cmd {
+			binary: "echo",
+			args: vec!["'hello'"],
+			redirect_target: None,
+		}),
+		Element::And,
+		ElementCmd(Cmd {
+			binary: "echo",
+			args: vec!["'world'"],
+			redirect_target: None,
+		})
+	]];
+	assert_eq!(parsed, expected);
 }
 
 #[test]
@@ -34,11 +34,13 @@ fn integration_cmds_are_parsed_semicolon() {
 		[
 			[ElementCmd(Cmd {
 				binary: "echo",
-				args: vec!["1"]
+				args: vec!["1"],
+				redirect_target: None,
 			})],
 			[ElementCmd(Cmd {
 				binary: "echo",
-				args: vec!["2"]
+				args: vec!["2"],
+				redirect_target: None,
 			})]
 		]
 	);
@@ -52,12 +54,14 @@ fn integration_cmds_and_exprs() {
 		[
 			ElementCmd(Cmd {
 				binary: "true",
-				args: vec![]
+				args: vec![],
+				redirect_target: None,
 			}),
 			And,
 			ElementCmd(Cmd {
 				binary: "echo",
-				args: vec!["\"output\""]
+				args: vec!["\"output\""],
+				redirect_target: None,
 			})
 		]
 	);
@@ -67,12 +71,14 @@ fn integration_cmds_and_exprs() {
 		[
 			ElementCmd(Cmd {
 				binary: "false",
-				args: vec![]
+				args: vec![],
+				redirect_target: None,
 			}),
 			And,
 			ElementCmd(Cmd {
 				binary: "echo",
-				args: vec!["\"output\""]
+				args: vec!["\"output\""],
+				redirect_target: None,
 			})
 		]
 	);
@@ -86,12 +92,14 @@ fn integration_cmds_or_exprs() {
 		[
 			ElementCmd(Cmd {
 				binary: "true",
-				args: vec![]
+				args: vec![],
+				redirect_target: None,
 			}),
 			Or,
 			ElementCmd(Cmd {
 				binary: "echo",
-				args: vec!["\"output\""]
+				args: vec!["\"output\""],
+				redirect_target: None,
 			})
 		]
 	);
@@ -101,12 +109,14 @@ fn integration_cmds_or_exprs() {
 		[
 			ElementCmd(Cmd {
 				binary: "false",
-				args: vec![]
+				args: vec![],
+				redirect_target: None,
 			}),
 			Or,
 			ElementCmd(Cmd {
 				binary: "echo",
-				args: vec!["\"output\""]
+				args: vec!["\"output\""],
+				redirect_target: None,
 			})
 		]
 	);
@@ -120,18 +130,34 @@ fn integration_cmds_piped_exprs() {
 		[
 			ElementCmd(Cmd {
 				binary: "cat",
-				args: vec![]
+				args: vec![],
+				redirect_target: None,
 			}),
 			Pipe,
 			ElementCmd(Cmd {
 				binary: "cat",
-				args: vec![]
+				args: vec![],
+				redirect_target: None,
 			}),
 			Pipe,
 			ElementCmd(Cmd {
 				binary: "ls",
-				args: vec![]
+				args: vec![],
+				redirect_target: None,
 			})
 		]
+	);
+}
+
+#[test]
+fn integration_cmd_with_redirection() {
+	let parsed: Vec<Element> = Parser::new("echo hello > outfile").parse().unwrap();
+	assert_eq!(
+		parsed,
+		[ElementCmd(Cmd {
+			binary: "echo",
+			args: vec!["hello"],
+			redirect_target: Some("outfile"),
+		})]
 	);
 }
