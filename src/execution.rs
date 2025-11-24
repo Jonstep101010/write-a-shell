@@ -31,66 +31,72 @@ impl<'a> ElementVec for Vec<Element<'a>> {
 		let mut prev_reader: Option<Stdio> = None;
 		let mut cmd_idx = 0;
 		let mut children: Vec<std::io::Result<Child>> = Vec::new();
+
 		for (idx, elem) in self.iter().enumerate() {
 			match elem {
-				Element::Pipe | Element::RedirectOut(_) | Element::RedirectAppend(_)
-				| Element::RedirectIn(_) | Element::Heredoc(_, _) => continue,
 				ElementCmd(cmd) => {
 					// Determine stdin
 					let mut stdin_info = Stdio::inherit();
 					let mut heredoc_content: Option<String> = None;
 					let mut stdin_redirected = false;
 
-					// Check for input redirection before or after this command
-					// First check before (for syntax like: < file cat)
-					if idx > 0 {
-						match self.get(idx - 1) {
+					// Look backwards for any dangling redirections (e.g., "< file | cmd")
+					// Continue past pipes until we find either a redirect or another command
+					for i in (0..idx).rev() {
+						match self.get(i) {
 							Some(Element::RedirectIn(filename)) => {
 								match File::open(filename) {
 									Ok(file) => {
+										// Convert to Stdio using raw fd, then forget the File
+										// to transfer ownership to the Stdio/child process
+										// let fd = file.as_raw_fd();
+										// std::mem::forget(file);
+										// stdin_info = unsafe { Stdio::from_raw_fd(fd) };
 										stdin_info = Stdio::from(file);
 										stdin_redirected = true;
 									}
 									Err(e) => {
 										eprintln!("Error opening {}: {}", filename, e);
-										continue;
+										// Continue to next element if we can't open the file
+										break;
 									}
 								}
+								break;
 							}
 							Some(Element::Heredoc(_, content)) => {
+								stdin_info = Stdio::piped();
+								heredoc_content = Some(content.clone());
+								stdin_redirected = true;
+								break;
+							}
+							Some(ElementCmd(_)) => break,
+							_ => continue, /* loop past pipes to handle redirs */
+						}
+					}
+
+					// Then check after (for syntax like: cat < file)
+					if !stdin_redirected && let Some(next_elem) = self.get(idx + 1) {
+						match next_elem {
+							Element::RedirectIn(filename) => match File::open(filename) {
+								Ok(file) => {
+									// let fd = file.as_raw_fd();
+									// std::mem::forget(file);
+									// stdin_info = unsafe { Stdio::from_raw_fd(fd) };
+									stdin_info = Stdio::from(file);
+									stdin_redirected = true;
+								}
+								Err(e) => {
+									eprintln!("Error opening {}: {}", filename, e);
+									continue;
+								}
+							},
+							Element::Heredoc(_, content) => {
 								// For heredoc, we need to write content to stdin
 								stdin_info = Stdio::piped();
 								heredoc_content = Some(content.clone());
 								stdin_redirected = true;
 							}
 							_ => {}
-						}
-					}
-
-					// Then check after (for syntax like: cat < file)
-					if !stdin_redirected {
-						if let Some(next_elem) = self.get(idx + 1) {
-							match next_elem {
-								Element::RedirectIn(filename) => {
-									match File::open(filename) {
-										Ok(file) => {
-											stdin_info = Stdio::from(file);
-											stdin_redirected = true;
-										}
-										Err(e) => {
-											eprintln!("Error opening {}: {}", filename, e);
-											continue;
-										}
-									}
-								}
-								Element::Heredoc(_, content) => {
-									// For heredoc, we need to write content to stdin
-									stdin_info = Stdio::piped();
-									heredoc_content = Some(content.clone());
-									stdin_redirected = true;
-								}
-								_ => {}
-							}
 						}
 					}
 
@@ -109,28 +115,28 @@ impl<'a> ElementVec for Vec<Element<'a>> {
 
 					// Determine stdout
 					let mut stdout_info = Stdio::inherit();
-					let mut stdout_redirected = false;
 
 					// Check for output redirection after this command
 					if let Some(next_elem) = self.get(idx + 1) {
 						match next_elem {
-							Element::RedirectOut(filename) => {
-								match File::create(filename) {
-									Ok(file) => {
-										stdout_info = Stdio::from(file);
-										stdout_redirected = true;
-									}
-									Err(e) => {
-										eprintln!("Error creating {}: {}", filename, e);
-										continue;
-									}
+							Element::RedirectOut(filename) => match File::create(filename) {
+								Ok(file) => {
+									// let fd = file.as_raw_fd();
+									// std::mem::forget(file);
+									// stdout_info = unsafe { Stdio::from_raw_fd(fd) };
+									stdout_info = Stdio::from(file);
 								}
-							}
+								Err(e) => {
+									eprintln!("Error creating {}: {}", filename, e);
+									continue;
+								}
+							},
 							Element::RedirectAppend(filename) => {
 								match OpenOptions::new().append(true).create(true).open(filename) {
 									Ok(file) => {
+										// let fd = file.as_raw_fd();
+										// std::mem::forget(file);
 										stdout_info = Stdio::from(file);
-										stdout_redirected = true;
 									}
 									Err(e) => {
 										eprintln!("Error opening {} for append: {}", filename, e);
@@ -140,13 +146,11 @@ impl<'a> ElementVec for Vec<Element<'a>> {
 							}
 							Element::Pipe => {
 								// Only set up pipe if stdout wasn't redirected
-								if !stdout_redirected {
-									if cmd_idx < piped_commands.len() - 1 {
-										if let Ok((reader, writer)) = std::io::pipe() {
-											prev_reader = Some(reader.into());
-											stdout_info = writer.into();
-										}
-									}
+								if cmd_idx < piped_commands.len() - 1
+									&& let Ok((reader, writer)) = std::io::pipe()
+								{
+									prev_reader = Some(reader.into());
+									stdout_info = writer.into();
 								}
 							}
 							_ => {}
@@ -203,6 +207,7 @@ impl<'a> ElementVec for Vec<Element<'a>> {
 						_ => unreachable!("match excludes!"),
 					}
 				}
+				_ => continue,
 			}
 		}
 		for child_result in children {

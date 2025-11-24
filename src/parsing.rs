@@ -47,8 +47,8 @@ impl<'a> Parser<'a> {
 		loop {
 			let next = self.tokens.get(self.current);
 			match next {
-				Some(&"|") | Some(&"&&") | Some(&"||")
-				| Some(&">") | Some(&">>") | Some(&"<") | Some(&"<<") => break,
+				Some(&"|") | Some(&"&&") | Some(&"||") | Some(&">") | Some(&">>") | Some(&"<")
+				| Some(&"<<") => break,
 				Some(&token) => {
 					args.push(token);
 				}
