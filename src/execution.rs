@@ -79,9 +79,6 @@ impl<'a> ElementVec for Vec<Element<'a>> {
 						match next_elem {
 							Element::RedirectIn(filename) => match File::open(filename) {
 								Ok(file) => {
-									// let fd = file.as_raw_fd();
-									// std::mem::forget(file);
-									// stdin_info = unsafe { Stdio::from_raw_fd(fd) };
 									stdin_info = Stdio::from(file);
 									stdin_redirected = true;
 								}
@@ -121,9 +118,6 @@ impl<'a> ElementVec for Vec<Element<'a>> {
 						match next_elem {
 							Element::RedirectOut(filename) => match File::create(filename) {
 								Ok(file) => {
-									// let fd = file.as_raw_fd();
-									// std::mem::forget(file);
-									// stdout_info = unsafe { Stdio::from_raw_fd(fd) };
 									stdout_info = Stdio::from(file);
 								}
 								Err(e) => {
@@ -134,8 +128,6 @@ impl<'a> ElementVec for Vec<Element<'a>> {
 							Element::RedirectAppend(filename) => {
 								match OpenOptions::new().append(true).create(true).open(filename) {
 									Ok(file) => {
-										// let fd = file.as_raw_fd();
-										// std::mem::forget(file);
 										stdout_info = Stdio::from(file);
 									}
 									Err(e) => {
@@ -157,7 +149,7 @@ impl<'a> ElementVec for Vec<Element<'a>> {
 						}
 					}
 
-					let (external, builtin) = cmd.run(stdin_info, stdout_info);
+					let (external, builtin) = cmd.run(stdin_info, stdout_info, is_piped);
 
 					if is_piped && idx > 0 && matches!(self.get(idx - 1), Some(Element::Pipe)) {
 						cmd_idx += 1;
@@ -320,6 +312,7 @@ impl<'a> Cmd<'a> {
 		&self,
 		stdin_info: Stdio,
 		stdout_info: Stdio,
+		is_piped: bool,
 	) -> (ExternalWithChild, BuiltinWithOutput) {
 		// set up args for builtins
 		match self.binary {
@@ -345,7 +338,17 @@ impl<'a> Cmd<'a> {
 					Some(status) => status.parse().unwrap_or_default(),
 					None => 0,
 				};
-				builtins::Exit::new(status).run();
+				// Only exit the shell if not piped
+				if is_piped {
+					// Return exit status as successful, but don't actually exit
+					(None, Some(Ok(Some(Output {
+						status: <std::process::ExitStatus as std::os::unix::process::ExitStatusExt>::from_raw(status),
+						stdout: Vec::new(),
+						stderr: Vec::new(),
+					}))))
+				} else {
+					builtins::Exit::new(status).run();
+				}
 			}
 			"history" => (None, Some(builtins::History::default().run())),
 			_ => (
