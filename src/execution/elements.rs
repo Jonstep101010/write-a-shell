@@ -15,7 +15,7 @@ pub trait ElementVec {
 		children: &mut Vec<Result<Child, std::io::Error>>,
 		prev_reader: &mut Option<Stdio>,
 		cmd_idx: &mut usize,
-		piped_commands: &Vec<Cmd<'a>>,
+		piped_commands: &[Cmd<'a>],
 		idx: usize,
 		cmd: &Cmd<'a>,
 	) -> ControlFlow<()>;
@@ -26,7 +26,6 @@ pub trait ElementVec {
 		heredoc_content: &mut Option<String>,
 		stdin_redirected: &mut bool,
 	);
-	// Add your methods here
 	fn run(self) -> Option<Output>;
 	fn process_elements(
 		self,
@@ -97,7 +96,7 @@ impl ElementVec for Vec<Element<'_>> {
 						&mut cmd_idx,
 						&piped_commands,
 						idx,
-						&cmd,
+						cmd,
 					) {
 						continue 'outer;
 					}
@@ -119,18 +118,12 @@ impl ElementVec for Vec<Element<'_>> {
 				Some(Element::RedirectIn(filename)) => {
 					match File::open(filename) {
 						Ok(file) => {
-							// Convert to Stdio using raw fd, then forget the File
-							// to transfer ownership to the Stdio/child process
-							// let fd = file.as_raw_fd();
-							// std::mem::forget(file);
-							// stdin_info = unsafe { Stdio::from_raw_fd(fd) };
 							*stdin_info = Stdio::from(file);
 							*stdin_redirected = true;
 						}
 						Err(e) => {
 							eprintln!("Error opening {}: {}", filename, e);
-							// Continue to next element if we can't open the file
-							break 'inner;
+							break 'inner; // if open fails: skip element
 						}
 					}
 					break 'inner;
@@ -146,12 +139,12 @@ impl ElementVec for Vec<Element<'_>> {
 			}
 		}
 	}
-	fn new_elementcmd(
+	fn new_elementcmd<'a>(
 		&self,
 		children: &mut Vec<Result<Child, std::io::Error>>,
 		prev_reader: &mut Option<Stdio>,
 		cmd_idx: &mut usize,
-		piped_commands: &Vec<Cmd>,
+		piped_commands: &[Cmd<'a>],
 		idx: usize,
 		cmd: &Cmd,
 	) -> ControlFlow<()> {
