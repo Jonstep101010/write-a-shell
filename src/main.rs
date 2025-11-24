@@ -3,6 +3,8 @@ use std::{
 	io::IsTerminal, // <--- bring is_terminal() into scope
 	io::Write,      // <--- bring flush() into scope
 };
+
+use crate::execution::elements::ElementVec;
 mod execution;
 mod parsing;
 
@@ -43,11 +45,10 @@ fn main() -> io::Result<()> {
 				}
 			}
 		}
-
 		for cmd in cmd_chains {
 			// Execute the command in a separate process
 			// @follow-up take output and print stout
-			let output = execution::ElementVec::run(cmd);
+			let output = ElementVec::run(cmd);
 			if let Some(output) = output {
 				std::io::stdout().write_all(&output.stdout).unwrap();
 			}
