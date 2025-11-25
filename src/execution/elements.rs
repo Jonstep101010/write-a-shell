@@ -5,12 +5,11 @@ use crate::parsing::{
 use std::{
 	fs::{File, OpenOptions},
 	io::Write,
-	ops::ControlFlow,
 	process::{Child, Output, Stdio},
 };
 
 pub trait ElementVec {
-	fn new_elementcmd<'a>(
+	fn spawn_cmd<'a>(
 		&self,
 		children: &mut Vec<Result<Child, std::io::Error>>,
 		prev_reader: &mut Option<Stdio>,
@@ -18,7 +17,7 @@ pub trait ElementVec {
 		piped_commands: &[Cmd<'a>],
 		idx: usize,
 		cmd: &Cmd<'a>,
-	) -> ControlFlow<()>;
+	);
 	fn handle_dangling_redirs(
 		&self,
 		idx: usize,
@@ -73,35 +72,29 @@ impl ElementVec for Vec<Element<'_>> {
 				None
 			})
 			.collect::<Vec<_>>();
-		'outer: for (idx, elem) in self.iter().enumerate() {
-			match elem {
-				Element::And | Element::Or => {
-					*previous_output = match children.pop() {
-						Some(Err(e)) => {
-							eprintln!("{e:?}");
-							None
-						}
-						Some(Ok(child)) => child.wait_with_output().ok(),
-						None => previous_output.take(),
-					};
-					let status = previous_output.as_ref()?.status;
-					if !status.success() {
-						break;
+		for (idx, elem) in self.iter().enumerate() {
+			if matches!(elem, Element::And | Element::Or) {
+				*previous_output = match children.pop() {
+					Some(Err(e)) => {
+						eprintln!("{e:?}");
+						None
 					}
+					Some(Ok(child)) => child.wait_with_output().ok(),
+					None => previous_output.take(),
+				};
+				let status = previous_output.as_ref()?.status;
+				if !status.success() {
+					break;
 				}
-				ElementCmd(cmd) => {
-					if let ControlFlow::Break(_) = &self.new_elementcmd(
-						children,
-						&mut prev_reader,
-						&mut cmd_idx,
-						&piped_commands,
-						idx,
-						cmd,
-					) {
-						continue 'outer;
-					}
-				}
-				_ => continue 'outer,
+			} else if let ElementCmd(cmd) = elem {
+				self.spawn_cmd(
+					children,
+					&mut prev_reader,
+					&mut cmd_idx,
+					&piped_commands,
+					idx,
+					cmd,
+				);
 			}
 		}
 		Some(())
@@ -113,7 +106,7 @@ impl ElementVec for Vec<Element<'_>> {
 		heredoc_content: &mut Option<String>,
 		stdin_redirected: &mut bool,
 	) {
-		'inner: for i in (0..idx).rev() {
+		for i in (0..idx).rev() {
 			match self.get(i) {
 				Some(Element::RedirectIn(filename)) => {
 					match File::open(filename) {
@@ -123,10 +116,10 @@ impl ElementVec for Vec<Element<'_>> {
 						}
 						Err(e) => {
 							eprintln!("Error opening {}: {}", filename, e);
-							break 'inner; // if open fails: skip element
+							return; // if open fails: skip element
 						}
 					}
-					break 'inner;
+					return;
 				}
 				Some(Element::Heredoc(_, content)) => {
 					*stdin_info = Stdio::piped();
@@ -134,12 +127,12 @@ impl ElementVec for Vec<Element<'_>> {
 					*stdin_redirected = true;
 					break;
 				}
-				Some(ElementCmd(_)) => break 'inner,
-				_ => continue 'inner,
+				Some(ElementCmd(_)) => return,
+				_ => {}
 			}
 		}
 	}
-	fn new_elementcmd<'a>(
+	fn spawn_cmd<'a>(
 		&self,
 		children: &mut Vec<Result<Child, std::io::Error>>,
 		prev_reader: &mut Option<Stdio>,
@@ -147,7 +140,7 @@ impl ElementVec for Vec<Element<'_>> {
 		piped_commands: &[Cmd<'a>],
 		idx: usize,
 		cmd: &Cmd,
-	) -> ControlFlow<()> {
+	) {
 		let mut stdin_info = Stdio::inherit();
 		let mut heredoc_content: Option<String> = None;
 		let mut stdin_redirected = false;
@@ -166,7 +159,7 @@ impl ElementVec for Vec<Element<'_>> {
 					}
 					Err(e) => {
 						eprintln!("Error opening {}: {}", filename, e);
-						return ControlFlow::Break(());
+						return;
 					}
 				},
 				Element::Heredoc(_, content) => {
@@ -197,7 +190,7 @@ impl ElementVec for Vec<Element<'_>> {
 					}
 					Err(e) => {
 						eprintln!("Error creating {}: {}", filename, e);
-						return ControlFlow::Break(());
+						return;
 					}
 				},
 				Element::RedirectAppend(filename) => {
@@ -207,7 +200,6 @@ impl ElementVec for Vec<Element<'_>> {
 						}
 						Err(e) => {
 							eprintln!("Error opening {} for append: {}", filename, e);
-							return ControlFlow::Break(());
 						}
 					}
 				}
@@ -219,7 +211,7 @@ impl ElementVec for Vec<Element<'_>> {
 						stdout_info = writer.into();
 					}
 				}
-				_ => return ControlFlow::Break(()),
+				_ => return,
 			},
 		}
 		let (external, builtin) = cmd.run(stdin_info, stdout_info, is_piped);
@@ -232,7 +224,6 @@ impl ElementVec for Vec<Element<'_>> {
 		} else if let Some(Ok(Some(output_builtin))) = builtin {
 			std::io::stdout().write_all(&output_builtin.stdout).unwrap();
 		}
-		ControlFlow::Continue(())
 	}
 }
 
